@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simulador de ciclos Otto y Diésel</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1c2330;--card:#fff;--muted:#6b7280;--line:#cfd5de;--metal:#9aa4b2;--dark:#4b5563;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12161d;--fg:#e6e9ef;--card:#1b212b;--muted:#9aa3b2;--line:#3a4352;--metal:#7b8596;--dark:#aab2c0}}
+:root[data-theme="dark"]{--bg:#12161d;--fg:#e6e9ef;--card:#1b212b;--muted:#9aa3b2;--line:#3a4352;--metal:#7b8596;--dark:#aab2c0}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:14px}
+h1{font-size:1.25rem;margin:0 0 10px}
+.tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.tab.on{background:#3b82f6;color:#fff;border-color:#3b82f6}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px}
+.card h2{font-size:.95rem;margin:2px 6px 6px;color:var(--muted)}
+canvas{width:100%;height:auto;display:block}
+.row{margin-top:12px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.row label{font-size:.85rem;color:var(--muted)}
+button{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font-size:.9rem;cursor:pointer}
+button:hover{border-color:var(--muted)}
+input[type=range]{accent-color:#3b82f6}
+#ang{flex:1 1 280px;min-width:200px}
+.params{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 18px;margin-top:12px;padding:10px 12px;background:var(--card);border:1px solid var(--line);border-radius:10px}
+.params label{display:block;font-size:.85rem;color:var(--muted)}
+.params input{width:100%}
+.params b{color:var(--fg)}
+.params small{display:block;margin-top:4px;font-size:.78rem;line-height:1.35}
+.info{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--card);border:1px solid var(--line);font-size:.92rem;line-height:1.45}
+.info b.p{font-size:1.05rem}
+.read{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:.85rem;margin-top:4px}
+</style>
+</head>
+<body>
+<h1>Ciclos Otto y Diésel: pistón y diagrama P-V sincronizados</h1>
+<div class="tabs"><button class="tab on" data-m="otto">Otto · 4 tiempos</button><button class="tab" data-m="diesel">Diésel · 4 tiempos</button><button class="tab" data-m="cmp">Comparar Otto y Diésel</button><button class="tab" data-m="otto2">Otto · 2 tiempos</button><button class="tab" data-m="diesel2">Diésel · 2 tiempos</button></div>
+<div class="grid">
+  <div class="card"><h2>Diagrama presión-volumen</h2><canvas id="pv" width="520" height="470"></canvas></div>
+  <div class="card"><h2>Cilindro</h2><canvas id="eng" width="520" height="470"></canvas></div>
+</div>
+<div class="row">
+  <button id="play">⏸ Pausa</button>
+  <button id="prev">⏮ Fase anterior</button>
+  <button id="next">Fase siguiente ⏭</button>
+  <button id="reset">↺ Valores iniciales</button>
+  <label><input type="checkbox" id="work" checked> Sombrear trabajo neto</label>
+</div>
+<div class="row"><label style="flex:0 0 auto">Ángulo del cigüeñal</label><input type="range" id="ang" min="0" max="719.9" step="0.1" value="0"></div>
+<div class="params">
+  <label>Velocidad de giro: <b id="vSpd"></b> rpm<input type="range" id="spd" min="2" max="120" step="1" value="15"><small>Vueltas completas del cigüeñal por minuto. Un ciclo Otto necesita 2 vueltas (720°). Aquí va a cámara lenta; un motor real gira a 800–6000 rpm.</small></label>
+  <label class="m-otto">Relación de compresión r (Otto): <b id="vR"></b><input type="range" id="rc" min="4" max="14" step="0.5" value="8"><small>Cociente entre el volumen máximo (pistón en el PMI) y el mínimo (PMS): r = Vmáx/Vc. Más r da más rendimiento, pero también más presión al final de la compresión. En 2 tiempos la compresión útil empieza al cerrarse las lumbreras, y la relación efectiva es menor.</small></label>
+  <label class="m-otto">Aporte de calor (P₃/P₂): <b id="vK"></b><input type="range" id="kq" min="1.2" max="5" step="0.1" value="3"><small>Cuánto sube la presión en la combustión (P₃/P₂), a volumen constante. Más calor da más presión máxima y más trabajo por ciclo, pero el rendimiento ideal no cambia.</small></label>
+  <label class="m-diesel" style="display:none">Relación de compresión r (Diésel): <b id="vD"></b><input type="range" id="rd" min="12" max="25" step="0.5" value="18"><small>Mucho mayor que en Otto porque solo se comprime aire: debe alcanzar la temperatura a la que el gasóleo se inflama solo, sin bujía.</small></label>
+  <label class="m-diesel" style="display:none">Relación de corte ρ: <b id="vRho"></b><input type="range" id="rho" min="1.2" max="4" step="0.1" value="2"><small>Cociente V₃/V₂: cuánto crece el volumen mientras se inyecta y arde el gasóleo a presión constante. Más ρ implica más calor aportado, pero menor rendimiento.</small></label>
+  <label>Coeficiente adiabático γ: <b id="vG"></b><input type="range" id="gm" min="1.1" max="1.67" step="0.01" value="1.4"><small>Cociente entre calores específicos del gas, cp/cv (≈ 1,4 en el aire). Determina lo empinadas que son las curvas adiabáticas de compresión y expansión.</small></label>
+</div>
+<div class="info" id="info"></div>
+
+<script>
+const DEF={spd:15,rc:8,kq:3,gm:1.4};
+const $=id=>document.getElementById(id);
+let r,k,G,P2,P3,theta=0,playing=true,last=null,mode='otto',rho=2,a3=360,fuel='otto',two=false,cur,cO,cD;
+const EP=110; // ángulo (desde el PMS) en que el pistón abre la lumbrera de escape (2T)
+const RC=60, LB=160, S=2*RC;               // radio de manivela, biela, carrera (px)
+const rad=d=>d*Math.PI/180;
+const X=a=>RC*(1-Math.cos(rad(a)))+LB-Math.sqrt(LB*LB-Math.pow(RC*Math.sin(rad(a)),2)); // desplazamiento desde el PMS
+const V=a=>1+(r-1)*X(a)/S;                  // volumen en unidades de Vc (cinemática real)
+const Pexp=v=>P3*Math.pow(v,-G);
+function P(f){
+  const Lc=two?360:720; f=((f%Lc)+Lc)%Lc; const v=V(f);
+  const pe=w=>fuel==="otto"?P3*Math.pow(w,-G):P2*Math.pow(V(a3)/w,G);
+  const tb=two?0:360, te=two?EP:540;
+  if(!two){ if(f<180) return 1; if(f<360) return Math.pow(r/v,G); }
+  else { if(f>=250) return Math.pow(V(EP)/v,G); if(f>=EP+6) return 1; }
+  if(f<te){
+    if(fuel==="otto"){ const fc=tb+6; return f<fc?P2+(pe(V(fc))-P2)*(f-tb)/6:pe(v); }
+    return f<a3?P2:pe(v);
+  }
+  if(f>=te+6) return 1;
+  return pe(V(te))+(1-pe(V(te)))*(f-te)/6;
+}
+function use(c){fuel=c.fuel;two=c.two;r=c.r;k=c.k;rho=c.rho;G=c.G;P2=c.P2;P3=c.P3;a3=c.a3;PH=PHS[fuel+(two?2:1)];}
+function build(fu,tw){
+  const c={fuel:fu,two:tw,G:+$("gm").value,r:fu==="otto"?+$("rc").value:+$("rd").value,k:+$("kq").value,rho:+$("rho").value};
+  use(c); c.P2=Math.pow(tw?V(EP):c.r,c.G); c.P3=fu==="otto"?c.P2*c.k:c.P2;
+  c.a3=0; if(fu==="diesel"){const b=tw?0:360,lim=tw?EP-1:539; let a=b; while(V(a)<c.rho&&a<lim)a+=0.1; c.a3=a;}
+  use(c); const re=tw?V(EP):c.r, g=c.G; c.re=re;
+  c.eta=(fu==="otto"?1-Math.pow(re,1-g):1-(Math.pow(c.rho,g)-1)/(Math.pow(re,g-1)*g*(c.rho-1)))*100;
+  let W=0; for(let a=0;a<(tw?360:720);a++) W+=P(a+0.5)*(V(a+1)-V(a)); c.W=W; return c;
+}
+function readParams(){
+  $("vSpd").textContent=$("spd").value; $("vR").textContent=$("rc").value; $("vK").textContent=(+$("kq").value).toFixed(1);
+  $("vD").textContent=$("rd").value; $("vRho").textContent=(+$("rho").value).toFixed(1); $("vG").textContent=(+$("gm").value).toFixed(2);
+  if(mode==="cmp"){cO=build("otto",false);cD=build("diesel",false);cur=cO;use(cO);}
+  else{cur=build(mode.startsWith("diesel")?"diesel":"otto",mode.endsWith("2"));use(cur);}
+}
+const PHO=[
+ {n:"Admisión",c:"#3b82f6",p:"Proceso 0→1 · isobaro. La válvula de admisión se abre, el pistón baja y entra la mezcla aire-combustible a presión casi constante."},
+ {n:"Compresión",c:"#eab308",p:"Proceso 1→2 · adiabático. Válvulas cerradas, el pistón sube y comprime la mezcla: aumentan presión y temperatura. Se consume trabajo."},
+ {n:"Explosión y expansión",c:"#ef4444",p:"Proceso 2→3 (isocoro: salta la chispa y la presión se dispara) y 3→4 (adiabático): los gases empujan el pistón. Es la única fase que produce trabajo útil."},
+ {n:"Escape",c:"#6b7280",p:"Proceso 4→1 (isocoro: cae la presión al abrir el escape) y 1→0 (isobaro): el pistón sube y expulsa los gases quemados."}
+];
+const PHD=[
+ {n:"Admisión",c:"#3b82f6",p:"Proceso 0→1 · isobaro. Se abre la válvula de admisión, el pistón baja y entra solo aire (sin combustible) a presión casi constante."},
+ {n:"Compresión",c:"#eab308",p:"Proceso 1→2 · adiabático. El pistón comprime el aire con una relación mucho mayor que en Otto: su temperatura supera la de autoinflamación del gasóleo."},
+ {n:"Combustión y expansión",c:"#ef4444",p:"Proceso 2→3 (isobaro): el inyector pulveriza gasóleo, que arde solo y mantiene la presión mientras el pistón baja. Después 3→4 (adiabático): los gases siguen expandiéndose y empujan el pistón. Es la fase que produce trabajo útil."},
+ {n:"Escape",c:"#6b7280",p:"Proceso 4→1 (isocoro: cae la presión al abrir el escape) y 1→0 (isobaro): el pistón sube y expulsa los gases quemados."}
+];
+const PHO2=[
+ {n:"Explosión y expansión",c:"#ef4444",p:"Proceso 2→3 (isocoro: salta la chispa y la presión se dispara) y 3→4 (adiabático). Es la carrera de trabajo, y ocurre en cada vuelta del cigüeñal: una explosión por revolución."},
+ {n:"Escape y admisión (barrido)",c:"#8b5cf6",p:"Al bajar, el pistón abre la lumbrera de escape (4→1, isocoro: cae la presión) y después la de transferencia: la mezcla nueva, comprimida en el cárter, entra y empuja los gases quemados. Escape y admisión ocurren a la vez, a presión casi constante. En la gráfica el punto recorre la línea de 1 atm hasta V<sub>máx</sub> y vuelve hasta V₁: es el pistón bajando al PMI y subiendo hasta cerrar las lumbreras."},
+ {n:"Compresión",c:"#eab308",p:"Proceso 1→2 · adiabático. El pistón sube, cierra las lumbreras y comprime la mezcla; a la vez crea depresión en el cárter, que aspira mezcla nueva. Solo se comprime desde el cierre de las lumbreras (relación efectiva menor que la geométrica)."}
+];
+const PHD2=[
+ {n:"Combustión y expansión",c:"#ef4444",p:"Proceso 2→3 (isobaro): el inyector pulveriza gasóleo, que arde solo mientras el pistón baja. Después 3→4 (adiabático). Es la carrera de trabajo, una por cada vuelta del cigüeñal."},
+ {n:"Escape y admisión (barrido)",c:"#8b5cf6",p:"El pistón abre la lumbrera de escape (4→1, isocoro: cae la presión) y después la de transferencia: el aire nuevo, comprimido en el cárter, entra y expulsa los gases quemados. Escape y admisión ocurren a la vez. En la gráfica el punto recorre la línea de 1 atm hasta V<sub>máx</sub> y vuelve hasta V₁: es el pistón bajando al PMI y subiendo hasta cerrar las lumbreras."},
+ {n:"Compresión",c:"#eab308",p:"Proceso 1→2 · adiabático. El pistón sube, cierra las lumbreras y comprime solo aire hasta que alcanza la temperatura de autoinflamación del gasóleo; a la vez aspira aire nuevo en el cárter."}
+];
+let PH=PHO; const PHS={otto1:PHO,diesel1:PHD,otto2:PHO2,diesel2:PHD2};
+const ph=f=>{if(two){f=((f%360)+360)%360;return f<EP?0:f<250?1:2;}return Math.floor((((f%720)+720)%720)/180);};
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let DPR=2;
+function fit(id){const cv=$(id),d=Math.max(window.devicePixelRatio||1,2);DPR=d;const c=cv.getContext("2d");cv.width=520*d;cv.height=470*d;c.setTransform(d,0,0,d,0,0);return c;}
+const pv=fit("pv"), en=fit("eng");
+
+function drawPV(f){
+  const c=pv,W=520,H=470,L=62,B=H-52,T=24,Rr=W-20, cm=mode==="cmp", cfgs=cm?[cO,cD]:[cur];
+  let ymax=0,xm=0; cfgs.forEach(g=>{use(g);ymax=Math.max(ymax,g.P3);xm=Math.max(xm,g.r);}); ymax*=1.08;
+  const x=v=>L+(v-0.5)/(xm-0.5)*(Rr-L), y=p=>B-(p/ymax)*(B-T);
+  c.clearRect(0,0,W,H); c.font="13px system-ui"; c.lineWidth=1; c.textAlign="start";
+  c.strokeStyle=css("--line"); c.fillStyle=css("--muted");
+  c.beginPath(); c.moveTo(L,T-6); c.lineTo(L,B); c.lineTo(Rr+6,B); c.stroke();
+  c.fillText("P",L-18,T); c.fillText("V",Rr-4,B+14); c.fillText("Vc",x(1)-8,B+28); c.fillText("P atm",6,y(1)+4);
+  if(!cm){use(cur); if(two) c.fillText("V₁",x(V(EP))-6,B+28); c.textAlign="right"; c.fillText("Vmáx = r·Vc",Rr+8,B+28); if(two){c.font="11px system-ui";c.fillStyle="#8b5cf6";c.fillText("barrido: escape",Rr+6,y(1)-48);c.fillText("+ admisión (1 atm)",Rr+6,y(1)-35);c.font="13px system-ui";} c.textAlign="start";}
+  cfgs.forEach((g,gi)=>{
+    use(g); const Lc=two?360:720, ff=((f%Lc)+Lc)%Lc, col=gi?"#f97316":"#3b82f6";
+    if($("work").checked){
+      const a0=two?250:180,a1=two?360+EP:540;
+      c.beginPath(); c.moveTo(x(V(a0)),y(P(a0)));
+      for(let a=a0;a<=a1;a++) c.lineTo(x(V(a)),y(P(a)));
+      c.closePath(); c.fillStyle=cm?col:"#22c55e"; c.globalAlpha=cm?0.12:0.18; c.fill(); c.globalAlpha=1;
+    }
+    for(let pass=0;pass<2;pass++) for(let a=0;a<Lc;a++){
+      const on=a<=ff; if((pass==0&&on)||(pass==1&&!on)) continue;
+      c.strokeStyle=cm?col:PH[ph(a)].c; c.globalAlpha=pass==0?0.25:1; c.lineWidth=pass==0?2:3.5;
+      c.beginPath(); c.moveTo(x(V(a)),y(P(a))); c.lineTo(x(V(a+1)),y(P(a+1))); c.stroke();
+    }
+    c.globalAlpha=1;
+    if(!cm){
+      const ac=fuel==="otto"?(two?6:366):a3, e4=two?EP-0.1:539.9, ds=fuel==="otto"?6:-8;
+      const pts=two?[["1",V(EP),1,-6,18],["2",1,P(359.9),-16,-6],["3",V(ac),P(ac),8,ds],["4",V(EP),P(e4),8,4]]
+                   :[["0",V(0),1,-14,18],["1",r,1,6,18],["2",1,P(359.9),-16,-6],["3",V(ac),P(ac),8,ds],["4",r,P(e4),8,4]];
+      c.fillStyle=css("--fg"); c.font="bold 13px system-ui";
+      pts.forEach(q=>c.fillText(q[0],x(q[1])+q[3],y(q[2])+q[4]));
+    }
+    c.fillStyle=cm?col:PH[ph(ff)].c; c.strokeStyle=css("--fg"); c.lineWidth=2;
+    c.beginPath(); c.arc(x(V(ff)),y(P(ff)),8,0,7); c.fill(); c.stroke();
+  });
+  c.font="12px system-ui"; c.fillStyle=css("--muted"); c.textAlign="start";
+  if(cm){c.fillStyle="#3b82f6";c.fillRect(L+10,T-2,12,12);c.fillStyle=css("--fg");c.fillText("Otto",L+27,T+9);c.fillStyle="#f97316";c.fillRect(L+80,T-2,12,12);c.fillStyle=css("--fg");c.fillText("Diésel",L+97,T+9);}
+  c.fillStyle=css("--muted"); c.fillText("Escala de presión lineal; P máx ≈ "+(ymax/1.08).toFixed(0)+" atm",L+6,H-4);
+}
+function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
+function hgrad(c,x0,x1,stops){const g=c.createLinearGradient(x0,0,x1,0);stops.forEach((s,i)=>g.addColorStop(i/(stops.length-1),s));return g;}
+function valve(c,x,lift,col,HEAD){
+  // muelle
+  c.strokeStyle="#8a94a3"; c.lineWidth=2; c.lineJoin="round"; c.beginPath();
+  const y0=HEAD-78, y1=HEAD-30+lift*0.5, n=9; c.moveTo(x,y0);
+  for(let i=1;i<=n;i++) c.lineTo(x+(i%2?9:-9),y0+(y1-y0)*i/n);
+  c.lineTo(x,y1); c.stroke();
+  // vástago
+  c.strokeStyle="#aab3c0"; c.lineWidth=4; c.lineCap="round";
+  c.beginPath(); c.moveTo(x,HEAD-84); c.lineTo(x,HEAD+lift-6); c.stroke(); c.lineCap="butt";
+  // platillo
+  c.fillStyle=col; c.strokeStyle="#2b3340"; c.lineWidth=1.5;
+  c.beginPath(); c.moveTo(x-4,HEAD+lift-9); c.lineTo(x+4,HEAD+lift-9); c.lineTo(x+18,HEAD+lift); c.lineTo(x+18,HEAD+lift+3); c.lineTo(x-18,HEAD+lift+3); c.lineTo(x-18,HEAD+lift); c.closePath(); c.fill(); c.stroke();
+}
+function arrow(c,x,y,dir,col){ // flecha vertical
+  c.fillStyle=col; c.strokeStyle=col; c.lineWidth=5; c.lineCap="round";
+  c.beginPath(); c.moveTo(x,y); c.lineTo(x,y+dir*22); c.stroke();
+  c.beginPath(); c.moveTo(x-9,y+dir*22); c.lineTo(x+9,y+dir*22); c.lineTo(x,y+dir*36); c.closePath(); c.fill(); c.lineCap="butt";
+}
+function harrow(c,x,y,col){c.fillStyle=col;c.strokeStyle=col;c.lineWidth=5;c.lineCap="round";c.beginPath();c.moveTo(x,y);c.lineTo(x+22,y);c.stroke();c.beginPath();c.moveTo(x+22,y-9);c.lineTo(x+22,y+9);c.lineTo(x+36,y);c.closePath();c.fill();c.lineCap="butt";}
+
+const HP={};
+function hatchPat(c,col){const d=DPR,key=col+d; if(HP[key]) return HP[key];
+  const o=document.createElement("canvas"); o.width=o.height=8*d; const g=o.getContext("2d");
+  g.strokeStyle=col; g.lineWidth=1.1*d; g.beginPath(); g.moveTo(0,8*d); g.lineTo(8*d,0); g.moveTo(-4*d,4*d); g.lineTo(4*d,-4*d); g.moveTo(4*d,12*d); g.lineTo(12*d,4*d); g.stroke();
+  const pt=c.createPattern(o,"repeat"); pt.setTransform(new DOMMatrix().scale(1/d)); return HP[key]=pt;}
+const hx=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+const mix=(a,b,t)=>{t=Math.max(0,Math.min(1,t));const A=hx(a),B=hx(b);return "rgb("+A.map((v,i)=>Math.round(v+(B[i]-v)*t)).join(",")+")";};
+function arr(c,x1,y1,x2,y2,col){const an=Math.atan2(y2-y1,x2-x1);c.strokeStyle=col;c.fillStyle=col;c.lineWidth=2.2;c.beginPath();c.moveTo(x1,y1);c.lineTo(x2-5*Math.cos(an),y2-5*Math.sin(an));c.stroke();
+  c.beginPath();c.moveTo(x2,y2);c.lineTo(x2-9*Math.cos(an-0.45),y2-9*Math.sin(an-0.45));c.lineTo(x2-9*Math.cos(an+0.45),y2-9*Math.sin(an+0.45));c.closePath();c.fill();}
+function drawEng2(f){
+  const c=en, PW=104, cx=232, HEAD=78, CL=S/(r-1), fm=((f%360)+360)%360;
+  const pinTop=HEAD+CL+22, CY=pinTop+LB+RC, ppY=pinTop+X(fm), crown=ppY-22;
+  const boreL=cx-PW/2, boreR=cx+PW/2, ye=HEAD+CL+X(EP), yt=HEAD+CL+X(125), ctop=HEAD+CL+S+20, cbot=CY+92, yi=ctop+58;
+  const exO=fm>=EP&&fm<250, trO=fm>=125&&fm<235, inO=fm>=215||fm<20;
+  const bg=css("--card"), lc=css("--dark"), ink=css("--fg"), mu=css("--muted");
+  const FR="#12c8f8", BL="#2a45ff", RD="#ff3366", OR="#ff9a62", PU="#8e5bd8";
+  c.clearRect(0,0,520,470); c.lineJoin="round"; c.textAlign="left";
+  // --- cuerpo rayado con aletas
+  const rc=(x,y,w,h)=>()=>{c.beginPath();c.rect(x,y,w,h);};
+  const shp=[rc(150,HEAD-30,222,ctop-HEAD+50),()=>{rr(c,96,ctop-16,274,cbot+18-(ctop-16),112);},rc(348,yi-16,46,32)];
+  for(let y=HEAD-10;y+8<=ye-8;y+=16) shp.push(rc(96,y,58,8));
+  for(let y=HEAD-10;y+8<=yt-10;y+=16) shp.push(rc(368,y,40,8));
+  c.strokeStyle=lc; c.lineWidth=3; shp.forEach(q=>{q();c.stroke();});
+  shp.forEach(q=>{q();c.fillStyle=bg;c.fill();c.fillStyle=hatchPat(c,lc);c.fill();});
+  // --- cavidades (contorno y relleno)
+  const cav=[[()=>c.rect(boreL,HEAD,PW,ctop+6-HEAD),bg],[()=>rr(c,114,ctop,236,cbot-ctop,100),FR],
+    [()=>c.rect(90,ye,boreL+2-90,26),FR],[()=>c.rect(boreR-2,yt,350-(boreR-2),20),FR],[()=>c.rect(330,yt,20,ctop+30-yt),FR],[()=>c.rect(332,yi-8,64,16),FR]];
+  c.strokeStyle=lc; c.lineWidth=3; cav.forEach(q=>{c.beginPath();q[0]();c.stroke();});
+  cav.forEach((q,i)=>{c.beginPath();q[0]();c.fillStyle=q[1];c.fill();
+    if(i==2&&exO){c.fillStyle=mix(OR,FR,(fm-125)/110*0.8);c.fill();}});
+  // --- gas del cilindro según la fase
+  const t1=(fm-125)/110; let g1,g2;
+  if(fm<18){g1=g2=PU;} else if(fm<EP){g1=g2=mix(RD,OR,(fm-18)/(EP-18));}
+  else if(fm<125){g1=g2=OR;} else if(fm<235){g1=mix(OR,FR,Math.pow(t1,1.4));g2=mix(OR,FR,t1*1.7);}
+  else if(fm<250){g1=g2=FR;} else {const t=(fm-250)/110;g1=mix(FR,BL,t*1.1);g2=mix(FR,BL,t*0.7);}
+  const gh=Math.max(crown-HEAD,0), gg=c.createLinearGradient(0,HEAD,0,HEAD+Math.max(gh,1)); gg.addColorStop(0,g1); gg.addColorStop(1,g2);
+  c.fillStyle=gg; c.fillRect(boreL+1,HEAD+1,PW-2,Math.max(gh-1,0));
+  if(fuel==="otto"&&fm<18){c.fillStyle="#ffe600";c.beginPath();const Rs=Math.min(17,CL*0.6+3);for(let k=0;k<16;k++){const R=k%2?Rs*0.42:Rs,an=k*Math.PI/8;c.lineTo(cx+R*Math.cos(an),HEAD+CL*0.5+R*Math.sin(an));}c.closePath();c.fill();}
+  if(fuel==="diesel"&&fm<a3){const g=c.createLinearGradient(0,HEAD+4,0,HEAD+60);g.addColorStop(0,"rgba(250,204,21,0.95)");g.addColorStop(1,"rgba(250,204,21,0)");c.fillStyle=g;c.beginPath();c.moveTo(cx-3,HEAD+6);c.lineTo(cx+3,HEAD+6);c.lineTo(cx+24,HEAD+58);c.lineTo(cx-24,HEAD+58);c.closePath();c.fill();}
+  // --- bujía / inyector
+  if(fuel==="otto"){
+    c.fillStyle="#f6f0cf"; c.strokeStyle="#333"; c.lineWidth=1.2; c.fillRect(cx-7,HEAD-62,14,36); c.strokeRect(cx-7,HEAD-62,14,36);
+    c.fillStyle="#222"; [-56,-48,-40].forEach(o=>c.fillRect(cx-7,HEAD+o,14,3));
+    c.fillStyle="#9aa4b2"; c.fillRect(cx-9,HEAD-26,18,14); c.strokeRect(cx-9,HEAD-26,18,14);
+    c.strokeStyle="#222"; c.lineWidth=2; c.beginPath(); c.moveTo(cx,HEAD-12); c.lineTo(cx,HEAD+9); c.lineTo(cx+5,HEAD+9); c.stroke();
+  } else {
+    c.fillStyle="#475569"; c.strokeStyle="#222"; c.lineWidth=1.2; c.fillRect(cx-8,HEAD-64,16,46); c.strokeRect(cx-8,HEAD-64,16,46);
+    c.fillStyle="#f59e0b"; c.fillRect(cx+8,HEAD-52,16,6); c.fillStyle="#334155"; c.fillRect(cx-4,HEAD-18,8,26);
+  }
+  // --- flechas de flujo
+  if(exO) arr(c,168,ye+13,106,ye+13,ink);
+  if(trO){arr(c,340,yt+66,340,yt+44,ink);arr(c,340,yt+40,340,yt+24,ink);arr(c,326,yt+10,294,yt+10,ink);}
+  if(inO) arr(c,396,yi,352,yi,ink);
+  c.strokeStyle="#3d9a40"; c.lineWidth=4; c.lineCap="round"; c.beginPath();
+  if(inO){c.moveTo(338,yi-7);c.lineTo(327,yi+5);}else{c.moveTo(338,yi-7);c.lineTo(338,yi+7);} c.stroke(); c.lineCap="butt";
+  // --- manivela, biela y pistón
+  const pinX=cx+RC*Math.sin(rad(fm)), pinY=CY-RC*Math.cos(rad(fm));
+  c.fillStyle="#1e4fff"; c.strokeStyle="#102a99"; c.lineWidth=1.5;
+  c.beginPath(); c.moveTo(cx,CY); c.arc(cx,CY,60,rad(fm+90-68),rad(fm+90+68)); c.closePath(); c.fill(); c.stroke();
+  c.lineCap="round"; c.strokeStyle="#102a99"; c.lineWidth=19; c.beginPath(); c.moveTo(cx,CY); c.lineTo(pinX,pinY); c.stroke();
+  c.strokeStyle="#1e4fff"; c.lineWidth=16; c.beginPath(); c.moveTo(cx,CY); c.lineTo(pinX,pinY); c.stroke();
+  c.strokeStyle="#4b5058"; c.lineWidth=11; c.beginPath(); c.moveTo(cx,ppY); c.lineTo(pinX,pinY); c.stroke(); c.lineCap="butt";
+  c.fillStyle="#4b5058"; c.beginPath(); c.arc(pinX,pinY,13,0,7); c.fill(); c.fillStyle="#1e4fff"; c.beginPath(); c.arc(pinX,pinY,6,0,7); c.fill();
+  c.fillStyle="#b9bcc2"; c.strokeStyle="#222"; c.lineWidth=1.5; c.fillRect(boreL+3,crown,PW-6,50); c.strokeRect(boreL+3,crown,PW-6,50);
+  c.fillStyle="#111"; c.fillRect(boreL+3,crown+4,PW-6,3); c.fillRect(boreL+3,crown+10,PW-6,3);
+  c.beginPath(); c.arc(cx,ppY,3.5,0,7); c.fill();
+  c.fillStyle="#111"; c.beginPath(); c.arc(cx,CY,11,0,7); c.fill();
+  // --- etiquetas
+  c.font="11px system-ui"; c.fillStyle=mu;
+  c.fillText("escape",8,ye+10); c.fillText("admisión",398,yi+4); c.fillText("transferencia",378,ctop-6); c.fillStyle="#0b4a63"; c.fillText("cárter",160,cbot-36); c.fillStyle=mu;
+  c.setLineDash([4,4]); c.lineWidth=1; c.strokeStyle=mu;
+  [[HEAD+CL,"PMS"],[HEAD+CL+S,"PMI"]].forEach(q=>{c.beginPath();c.moveTo(40,q[0]);c.lineTo(92,q[0]);c.stroke();c.fillText(q[1],8,q[0]+4);}); c.setLineDash([]);
+  c.fillText("↻ giro del cigüeñal",8,462);
+  [[FR,fuel==="otto"?"mezcla fresca":"aire fresco"],[OR,"gases quemados"]].forEach((q,i)=>{c.fillStyle=q[0];c.fillRect(8,14+i*18,12,12);c.fillStyle=mu;c.fillText(q[1],26,24+i*18);});
+}
+function drawEng(f){
+  if(two){drawEng2(f);return;}
+  const c=en, HEAD=100, CL=S/(r-1), PW=110, cx=260, k4=ph(f), LL=two?360:720, fm=((f%LL)+LL)%LL, t0=two?0:360, t1=two?EP:540, cmp=mode==='cmp';
+  const a=((f%360)+360)%360, pinTop=HEAD+CL+22, CY=pinTop+LB+RC;
+  const ppY=pinTop+X(a), crown=ppY-22;
+  const pinX=cx+RC*Math.sin(rad(a)), pinY=CY-RC*Math.cos(rad(a));
+  const bx=cx-PW/2-16, bw=PW+32, bot=HEAD+CL+S+70;
+  if(!cmp)c.clearRect(0,0,520,470); c.textAlign="center"; c.lineJoin="round";
+  // bloque motor
+  c.fillStyle=hgrad(c,bx,bx+bw,["#6f7a8a","#aeb7c3","#6f7a8a"]); c.fillRect(bx,HEAD,bw,bot-HEAD);
+  // camisa interior (hueco)
+  c.fillStyle=css("--card"); c.fillRect(cx-PW/2,HEAD,PW,bot-HEAD);
+
+  // gas
+  const gx=cx-PW/2, gh=Math.max(crown-HEAD,0);
+  c.save(); c.beginPath(); c.rect(gx,HEAD,PW,gh); c.clip();
+  c.fillStyle=PH[k4].c; c.globalAlpha=k4==(two?0:2)?0.5:0.28; c.fillRect(gx,HEAD,PW,gh); c.globalAlpha=1;
+  if(fm>=t0&&fm<t1){ // llama
+    const t=Math.min((fm-t0)/(fuel==='otto'?25:45),1), rad0=20+t*90, al=(fm-t0)<60?0.85:Math.max(0.85-(fm-t0-60)/120*0.55,0.3);
+    const g=c.createRadialGradient(cx,HEAD+4,2,cx,HEAD+4,rad0);
+    g.addColorStop(0,"rgba(255,244,170,"+al+")"); g.addColorStop(0.5,"rgba(251,146,60,"+al*0.8+")"); g.addColorStop(1,"rgba(239,68,68,0)");
+    c.fillStyle=g; c.fillRect(gx,HEAD,PW,gh);
+  }
+  c.restore();
+  // culata
+  c.fillStyle=hgrad(c,bx-6,bx+bw+6,["#3b4452","#69758a","#3b4452"]); rr(c,bx-6,HEAD-30,bw+12,32,5); c.fill();
+  c.strokeStyle="#2b3340"; c.lineWidth=1.5; c.stroke();
+  // válvulas y bujía
+  const lift=11, vi=cx-PW/4, ve=cx+PW/4;
+  if(!two)valve(c,vi,fm<180?lift*Math.sin(Math.PI*fm/180):0,"#3b82f6",HEAD); if(!two)valve(c,ve,fm>=540?lift*Math.sin(Math.PI*(fm-540)/180):0,"#9aa4b2",HEAD);
+  if(fuel==="otto"){
+    c.fillStyle=hgrad(c,cx-4,cx+4,["#e5e7eb","#ffffff","#cbd5e1"]); c.fillRect(cx-4,HEAD-84,8,50);
+    c.fillStyle="#475569"; rr(c,cx-9,HEAD-44,18,14,2); c.fill();
+    c.strokeStyle="#475569"; c.lineWidth=2; c.beginPath(); c.moveTo(cx,HEAD-30); c.lineTo(cx,HEAD+8); c.lineTo(cx+5,HEAD+8); c.stroke();
+    if(fm>=t0&&fm<t0+15){const g=c.createRadialGradient(cx,HEAD+8,0,cx,HEAD+8,16);g.addColorStop(0,"#fff");g.addColorStop(0.4,"#fde047");g.addColorStop(1,"rgba(253,224,71,0)");c.fillStyle=g;c.beginPath();c.arc(cx,HEAD+8,16,0,7);c.fill();}
+  } else {
+    c.fillStyle=hgrad(c,cx-8,cx+8,["#334155","#64748b","#334155"]); rr(c,cx-8,HEAD-84,16,54,3); c.fill();
+    c.fillStyle="#f59e0b"; c.fillRect(cx+8,HEAD-68,16,6);
+    c.fillStyle="#334155"; c.fillRect(cx-4,HEAD-30,8,34);
+    if(fm>=t0&&fm<a3){const g=c.createLinearGradient(0,HEAD+4,0,HEAD+60);g.addColorStop(0,"rgba(250,204,21,0.95)");g.addColorStop(1,"rgba(250,204,21,0)");c.fillStyle=g;c.beginPath();c.moveTo(cx-3,HEAD+4);c.lineTo(cx+3,HEAD+4);c.lineTo(cx+26,HEAD+60);c.lineTo(cx-26,HEAD+60);c.closePath();c.fill();}
+  }
+  // flechas de flujo y etiquetas
+  c.font="11px system-ui"; c.fillStyle=css("--muted");
+  if(!cmp&&!two){c.fillText("admisión",vi-20,10); c.fillText("escape",ve+20,10);}
+  if(!cmp)c.fillText(fuel==="otto"?"bujía":"inyector",cx,10);
+  if(!two&&fm<180) arrow(c,vi-30,HEAD-60,1,"#3b82f6");
+  if(!two&&fm>=540) arrow(c,ve+30,HEAD-36,-1,"#6b7280");
+  // biela
+  const dx=pinX-cx, dy=pinY-ppY, L=Math.hypot(dx,dy), nx=-dy/L, ny=dx/L;
+  c.fillStyle="#9aa4b2"; c.strokeStyle="#2b3340"; c.lineWidth=1.5;
+  c.beginPath(); c.moveTo(cx+nx*7,ppY+ny*7); c.lineTo(pinX+nx*13,pinY+ny*13); c.lineTo(pinX-nx*13,pinY-ny*13); c.lineTo(cx-nx*7,ppY-ny*7); c.closePath(); c.fill(); c.stroke();
+  // pistón
+  c.fillStyle=hgrad(c,cx-PW/2+3,cx+PW/2-3,["#7b8596","#e2e6ec","#98a2b1","#667184"]); rr(c,cx-PW/2+3,crown,PW-6,46,4); c.fill();
+  c.strokeStyle="#2b3340"; c.lineWidth=1.5; c.stroke();
+  c.strokeStyle="#3b4452"; c.lineWidth=2;
+  [6,12,18].forEach(o=>{c.beginPath(); c.moveTo(cx-PW/2+3,crown+o); c.lineTo(cx+PW/2-3,crown+o); c.stroke();});
+  c.fillStyle="#2b3340"; c.beginPath(); c.arc(cx,ppY,7,0,7); c.fill();
+  c.fillStyle="#9aa4b2"; c.beginPath(); c.arc(cx,ppY,3.5,0,7); c.fill();
+  // cigüeñal
+  const ux=Math.sin(rad(a)), uy=-Math.cos(rad(a));
+  c.fillStyle="#586374"; c.strokeStyle="#2b3340"; c.lineWidth=1.5;
+  c.beginPath(); c.arc(cx-ux*26,CY-uy*26,30,0,7); c.fill(); c.stroke(); // contrapeso
+  c.lineCap="round"; c.strokeStyle="#2b3340"; c.lineWidth=36; c.beginPath(); c.moveTo(cx,CY); c.lineTo(pinX,pinY); c.stroke();
+  c.strokeStyle="#b4bcc8"; c.lineWidth=33; c.beginPath(); c.moveTo(cx,CY); c.lineTo(pinX,pinY); c.stroke(); c.lineCap="butt";
+  c.fillStyle="#2b3340"; c.beginPath(); c.arc(cx,CY,11,0,7); c.fill(); c.fillStyle="#e5e7eb"; c.beginPath(); c.arc(cx,CY,5,0,7); c.fill();
+  c.fillStyle="#2b3340"; c.beginPath(); c.arc(pinX,pinY,14,0,7); c.fill();
+  c.fillStyle="#e2e6ec"; c.beginPath(); c.arc(pinX,pinY,8,0,7); c.fill();
+  // marcas PMS / PMI
+  c.strokeStyle=css("--muted"); c.setLineDash([4,4]); c.lineWidth=1; c.fillStyle=css("--muted"); c.textAlign="left"; c.font="12px system-ui";
+  if(!cmp)[[HEAD+CL,"PMS"],[HEAD+CL+S,"PMI"]].forEach(p=>{c.beginPath(); c.moveTo(48,p[0]); c.lineTo(bx-(two?52:4),p[0]); c.stroke(); c.fillText(p[1],8,p[0]+4);});
+  c.setLineDash([]); if(!cmp)c.fillText("↻ giro del cigüeñal",8,458); c.textAlign="start";
+}
+
+function drawEngCmp(f){
+  en.clearRect(0,0,520,470);
+  [cO,cD].forEach((g,i)=>{use(g); const sc=0.7; en.save(); en.translate(130+i*260-260*sc,44); en.scale(sc,sc); drawEng(f); en.restore();
+    en.textAlign="center"; en.fillStyle=i?"#f97316":"#3b82f6"; en.font="bold 15px system-ui"; en.fillText(i?"Diésel":"Otto",130+i*260,24);});
+}
+function update(){
+  const cyc=mode.endsWith("2")?360:720, f=((theta%cyc)+cyc)%cyc; let h="";
+  if(mode==="cmp"){
+    drawPV(f); drawEngCmp(f);
+    [cO,cD].forEach((g,i)=>{use(g); const k4=ph(f);
+      h+='<div style="margin-bottom:6px"><b style="color:'+(i?"#f97316":"#3b82f6")+'">'+(i?"Diésel":"Otto")+'</b> · <b style="color:'+PH[k4].c+'">'+PH[k4].n+'</b><div class="read"><span>V/Vc = '+V(f).toFixed(2)+'</span><span>P ≈ '+P(f).toFixed(1)+' atm</span><span>P máx = '+g.P3.toFixed(1)+' atm</span><span>η ideal = '+g.eta.toFixed(1)+' %</span><span>Trabajo neto ≈ '+g.W.toFixed(0)+' P₀·Vc</span></div></div>';});
+    h+='<small style="color:var(--muted)">Mismo ángulo de cigüeñal ('+f.toFixed(0)+'°) para los dos ciclos. El Diésel suele rendir más porque trabaja con relaciones de compresión mucho mayores; a igual r, el Otto rinde más.</small>';
+  } else {
+    use(cur); drawPV(f); drawEng(f); const k4=ph(f), rn=two?"r<sub>ef</sub>":"r";
+    h='<b class="p" style="color:'+PH[k4].c+'">'+PH[k4].n+'</b><br>'+PH[k4].p+
+      '<div class="read"><span>Cigüeñal: '+f.toFixed(0)+'°</span><span>V/Vc = '+V(f).toFixed(2)+'</span><span>P ≈ '+P(f).toFixed(1)+' atm</span><span>P máx = '+P3.toFixed(1)+' atm</span>'+(two?'<span>r efectiva = '+cur.re.toFixed(1)+'</span>':'')+
+      '<span>Rendimiento ideal '+(fuel==='otto'?'η = 1 − 1/'+rn+'<sup>γ−1</sup>':'η = 1 − (ρ<sup>γ</sup>−1)/('+rn+'<sup>γ−1</sup>·γ(ρ−1))')+' = '+cur.eta.toFixed(1)+' %</span><span>Trabajo neto ≈ '+cur.W.toFixed(0)+' P₀·Vc</span></div>';
+  }
+  $("ang").value=f; $("info").innerHTML=h;
+}
+function loop(t){
+  const cyc=mode.endsWith("2")?360:720;
+  if(last!==null&&playing) theta=(theta+(t-last)/1000*$("spd").value*6)%cyc;
+  last=t; update(); requestAnimationFrame(loop);
+}
+$("play").onclick=()=>{playing=!playing;$("play").textContent=playing?"⏸ Pausa":"▶ Reproducir";};
+$("ang").oninput=e=>{theta=+e.target.value;};
+function step(d){playing=false;$("play").textContent="▶ Reproducir";
+  const cyc=mode.endsWith("2")?360:720, b=mode.endsWith("2")?[0,EP,250]:[0,180,360,540], f=((theta%cyc)+cyc)%cyc;
+  let t=d>0?b.find(x=>x>f+1e-6):[...b].reverse().find(x=>x<f-1e-6);
+  if(t===undefined) t=d>0?0:b[b.length-1]; theta=t;}
+$("next").onclick=()=>step(1); $("prev").onclick=()=>step(-1);
+["spd","rc","kq","gm","rd","rho"].forEach(i=>$(i).oninput=readParams);
+$("reset").onclick=()=>{$("spd").value=DEF.spd;$("rc").value=DEF.rc;$("kq").value=DEF.kq;$("gm").value=DEF.gm;$("rd").value=18;$("rho").value=2;readParams();};
+function setMode(m){mode=m; theta=0;
+  const sh=(cls,on)=>document.querySelectorAll(cls).forEach(e=>e.style.display=on?"":"none");
+  sh(".m-otto",!m.startsWith("diesel")); sh(".m-diesel",m==="cmp"||m.startsWith("diesel"));
+  document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on",b.dataset.m===m));
+  $("ang").max=(m.endsWith("2")?360:720)-0.1; readParams();}
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>setMode(b.dataset.m));
+readParams(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
